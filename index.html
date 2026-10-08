@@ -36,6 +36,7 @@ table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:ta
 th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 th{color:var(--mut);font-weight:600}
 .note{font-size:13px;color:var(--mut);margin:8px 0 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .w{grid-column:1/-1}button.sm{min-height:36px;padding:0 10px;font-size:13px}
 </style>
 </head>
 <body>
@@ -59,6 +60,22 @@ th{color:var(--mut);font-weight:600}
   <canvas id="cv"></canvas>
 </section>
 
+<section id="rep" hidden>
+  <h2>Test report</h2>
+  <div id="repInfo"></div>
+  <div class="row" style="margin-top:10px"><button class="pri" id="btnShare">Share report</button><button id="btnPdf">Download PDF</button></div>
+</section>
+
+<section>
+  <h2>Job details</h2>
+  <div class="grid">
+    <label>Project no.<input type="text" id="m_project"></label><label>Site<input type="text" id="m_site"></label>
+    <label>Location<input type="text" id="m_location"></label><label>Operator<input type="text" id="m_operator"></label>
+    <label>Anchor type<input type="text" id="m_type"></label><label>Substrate<input type="text" id="m_substrate"></label>
+    <label class="w">Notes<input type="text" id="m_notes"></label>
+  </div>
+</section>
+
 <section>
   <h2>Test</h2>
   <div class="row">
@@ -68,7 +85,7 @@ th{color:var(--mut);font-weight:600}
   </div>
   <div class="row" style="margin-top:10px">
     <button class="pri" id="btnStart">Start test</button>
-    <button class="stop" id="btnStop" disabled>Stop and save</button>
+    <button class="stop" id="btnStop" disabled>End test</button>
   </div>
   <p class="note">Pass: load stays at or above the target, continuously, for the full hold time.</p>
 </section>
@@ -88,7 +105,7 @@ th{color:var(--mut);font-weight:600}
 
 <section>
   <h2>Results</h2>
-  <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+  <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
 </main>
@@ -203,7 +220,7 @@ $('btnScale').onclick=()=>{const m=mean();if(m===null){status('Connect the gauge
 $('btnStart').onclick=()=>{
   if(live&&!cal.ok){status('Calibrate first (steps 1 and 2 below).');return}
   if(!live&&!sim){status('Connect the gauge, or try the simulator.');return}
-  run={t0:performance.now(),data:[],peak:0,holdStart:null,longest:0,anchor:$('anchor').value.trim()||'-',target:parseFloat($('target').value)||15,hold:parseFloat($('holdS').value)||30};
+  run={t0:performance.now(),data:[],peak:0,holdStart:null,longest:0,anchor:$('anchor').value.trim()||'-',target:parseFloat($('target').value)||15,hold:parseFloat($('holdS').value)||30,meta:getMeta()};
   $('holdNeed').textContent=run.hold;$('verdict').textContent='';$('peak').textContent='0.00';$('hold').textContent='0';
   $('btnStart').disabled=true;$('btnStop').disabled=false;
 };
@@ -211,15 +228,17 @@ $('btnStop').onclick=()=>finish('');
 function finish(force){
   if(!run)return;
   const pass=run.longest>=run.hold, res=force||(pass?'PASS':'FAIL');
-  results.push({anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,result:res,at:new Date().toISOString()});
+  const n=run.data.length,k=Math.max(1,Math.ceil(n/600));
+  const r={id:Math.random().toString(36).slice(2,10),anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,dur:n?+run.data[n-1][0].toFixed(1):0,result:res,at:new Date().toISOString(),meta:run.meta,data:run.data.filter((_,i)=>i%k===0||i===n-1).map(p=>[+p[0].toFixed(2),+p[1].toFixed(3)])};
+  results.push(r);
   store.set('results',results);
   const v=$('verdict');v.textContent=res;v.className=res==='PASS'?'ok':res==='FAIL'?'bad':'warn';
   run=null;$('btnStart').disabled=false;$('btnStop').disabled=true;
   const m=$('anchor').value.match(/^(.*?)(\d+)(\D*)$/); if(m)$('anchor').value=m[1]+String(+m[2]+1).padStart(m[2].length,'0')+m[3];
-  render();draw();
+  render();draw();showReport(r);
 }
 function render(){
-  $('rows').innerHTML=results.map(r=>`<tr><td>${esc(r.anchor)}</td><td>${r.peak}</td><td>${r.hold}</td><td class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}"><b>${r.result}</b></td></tr>`).join('')||'<tr><td colspan="4" class="note">No tests yet.</td></tr>';
+  $('rows').innerHTML=results.map((r,i)=>`<tr><td>${esc(r.anchor)}</td><td>${r.peak}</td><td>${r.hold}</td><td class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}"><b>${r.result}</b></td><td style="white-space:nowrap"><button class="sm" data-s="${i}">Share</button> <button class="sm" data-d="${i}">PDF</button></td></tr>`).join('')||'<tr><td colspan="5" class="note">No tests yet.</td></tr>';
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 $('btnCopy').onclick=async()=>{
@@ -228,6 +247,88 @@ $('btnCopy').onclick=async()=>{
 };
 $('btnClear').onclick=()=>{if(results.length&&confirm('Clear all saved results on this phone?')){results=[];store.set('results',results);render()}};
 $('target').oninput=draw;window.addEventListener('resize',draw);
+
+// ---- job details ----
+const MF=['project','site','location','operator','type','substrate','notes'];
+const savedMeta=store.get('meta',{});
+MF.forEach(k=>{const e=$('m_'+k);e.value=savedMeta[k]||'';e.oninput=()=>store.set('meta',getMeta())});
+function getMeta(){const m={};MF.forEach(k=>m[k]=$('m_'+k).value.trim());return m}
+
+// ---- report (drawn on a canvas, wrapped in a PDF; works offline) ----
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath()}
+function step(max,n){for(const s of [1,2,5,10,20,50,100,200,500])if(max/s<=n)return s;return 1000}
+function drawReport(r){
+  const W=1240,H=1754,cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');
+  const F='system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif',T='#111827',M='#6b7280',G='#e5e7eb',BL='#2563eb',RD='#dc2626';
+  const tx=(t,x,y,sz,col,wt,al)=>{c.font=`${wt||400} ${sz}px ${F}`;c.fillStyle=col;c.textAlign=al||'left';c.textBaseline='alphabetic';c.fillText(t,x,y)};
+  const fit=(t,w,sz)=>{c.font=`400 ${sz}px ${F}`;t=String(t||'-');while(c.measureText(t).width>w&&t.length>1)t=t.slice(0,-2)+'…';return t};
+  c.fillStyle='#fff';c.fillRect(0,0,W,H);
+  tx('Anchor Pull Test Report',100,150,50,T,700);
+  tx(`Test ${r.id}  ·  ${r.at.slice(0,19).replace('T',' ')}`,100,196,24,M);
+  const bc=r.result==='PASS'?'#15803d':r.result==='FAIL'?'#b91c1c':'#b45309',bw=r.result==='INTERRUPTED'?330:190;
+  c.fillStyle=bc;rr(c,W-100-bw,96,bw,86,18);c.fill();tx(r.result,W-100-bw/2,154,r.result==='INTERRUPTED'?32:46,'#fff',800,'center');
+  const m=r.meta||{};
+  [['Project',m.project],['Site',m.site],['Location',m.location],['Operator',m.operator],['Anchor ID',r.anchor],['Anchor type',m.type],['Substrate',m.substrate]].forEach(([k,v],i)=>{
+    const x=100+(i<4?0:1)*560,y=290+(i%4)*66;tx(k,x,y,22,M);tx(fit(v,340,27),x+190,y,27,T)});
+  // chart
+  const L=170,R=1140,TP=660,B=1300,pw=R-L,ph=B-TP,d=r.data.length?r.data:[[0,0]];
+  const xmax=Math.max(10,Math.ceil(d[d.length-1][0])),ymax=Math.ceil(Math.max(r.target*1.2,r.peak*1.1,1)/step(Math.max(r.target*1.2,r.peak*1.1,1),8))*step(Math.max(r.target*1.2,r.peak*1.1,1),8);
+  const X=x=>L+x/xmax*pw,Y=y=>B-Math.max(0,y)/ymax*ph,ys=step(ymax,8),xs=step(xmax,10);
+  tx('Applied load over time',100,610,30,T);
+  c.lineWidth=1.5;c.strokeStyle=G;
+  for(let v=0;v<=ymax;v+=ys){c.beginPath();c.moveTo(L,Y(v));c.lineTo(R,Y(v));c.stroke();tx(String(v),L-12,Y(v)+7,20,M,400,'right')}
+  for(let v=0;v<=xmax;v+=xs){c.beginPath();c.moveTo(X(v),TP);c.lineTo(X(v),B);c.stroke();tx(String(v),X(v),B+30,20,M,400,'center')}
+  tx('Time (s)',(L+R)/2,B+68,24,T,400,'center');
+  c.save();c.translate(52,(TP+B)/2);c.rotate(-Math.PI/2);tx('Load (kN)',0,0,24,T,400,'center');c.restore();
+  c.setLineDash([14,9]);c.lineWidth=2.5;c.strokeStyle=RD;c.beginPath();c.moveTo(L,Y(r.target));c.lineTo(R,Y(r.target));c.stroke();c.setLineDash([]);
+  tx(`target ${r.target} kN`,R-6,Y(r.target)-10,22,RD,400,'right');
+  c.lineWidth=3.5;c.strokeStyle=BL;c.lineJoin='round';c.beginPath();d.forEach((p,i)=>i?c.lineTo(X(p[0]),Y(p[1])):c.moveTo(X(p[0]),Y(p[1])));c.stroke();
+  // summary strip
+  [['Peak load',r.peak+' kN'],['Target proof load',r.target+' kN'],['Required hold',r.need+' s'],['Longest hold ≥ target',r.hold+' s'],['Duration',r.dur+' s']].forEach(([k,v],i)=>{
+    tx(k,100+i*205,1470,21,M);tx(v,100+i*205,1522,36,T,700)});
+  if(r.result==='INTERRUPTED')tx('Interrupted: the connection to the gauge was lost during the test.',100,1630,22,'#b45309');
+  if(m.notes)tx(fit('Notes: '+m.notes,1040,22),100,1680,22,M);
+  return cv;
+}
+function pdfFromJpeg(jpg,w,h){
+  const enc=new TextEncoder(),parts=[],off=[];let len=0;
+  const push=x=>{const b=typeof x==='string'?enc.encode(x):x;parts.push(b);len+=b.length};
+  const obj=(n,body)=>{off[n]=len;push(n+' 0 obj\n'+body+'\nendobj\n')};
+  push('%PDF-1.4\n');
+  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  obj(3,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');
+  off[4]=len;push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);push(jpg);push('\nendstream\nendobj\n');
+  const ct='q 595.28 0 0 841.89 0 0 cm /Im0 Do Q';obj(5,`<< /Length ${ct.length} >>\nstream\n${ct}\nendstream`);
+  let x='xref\n0 6\n0000000000 65535 f \n';for(let i=1;i<=5;i++)x+=String(off[i]).padStart(10,'0')+' 00000 n \n';
+  push(x+`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${len}\n%%EOF`);
+  return new Blob(parts,{type:'application/pdf'});
+}
+async function makePdf(r){
+  const cv=drawReport(r),blob=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.92));
+  return pdfFromJpeg(new Uint8Array(await blob.arrayBuffer()),cv.width,cv.height);
+}
+const fname=r=>'pulltest_'+String(r.anchor||r.id).replace(/[^\w.-]+/g,'_')+'.pdf';
+function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
+async function shareReport(r){
+  try{
+    const pdf=await makePdf(r),file=new File([pdf],fname(r),{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],title:'Anchor pull test report',text:`Anchor ${r.anchor}: ${r.result}`});return}catch(e){if(e.name==='AbortError')return}
+    }
+    download(pdf,fname(r));status('Sharing is not available here, so the PDF was downloaded instead.');
+  }catch(e){status('Could not create the report: '+(e.message||e))}
+}
+async function pdfReport(r){try{download(await makePdf(r),fname(r))}catch(e){status('Could not create the report: '+(e.message||e))}}
+let lastR=null;
+function showReport(r){
+  lastR=r;$('rep').hidden=false;
+  $('repInfo').innerHTML=`Anchor <b>${esc(r.anchor)}</b>: <b class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}">${r.result}</b> (peak ${r.peak} kN, held ${r.hold} of ${r.need} s)`;
+  $('rep').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+$('btnShare').onclick=()=>lastR&&shareReport(lastR);
+$('btnPdf').onclick=()=>lastR&&pdfReport(lastR);
+$('rows').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.s!==undefined)shareReport(results[+b.dataset.s]);else if(b.dataset.d!==undefined)pdfReport(results[+b.dataset.d])};
 calText();render();draw();
 })();
 </script>
