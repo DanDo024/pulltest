@@ -37,6 +37,7 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 th{color:var(--mut);font-weight:600}
 .note{font-size:13px;color:var(--mut);margin:8px 0 0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .w{grid-column:1/-1}button.sm{min-height:36px;padding:0 10px;font-size:13px}
+select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:0 10px;width:100%}#phGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}#phGrid input{margin:4px 0}
 </style>
 </head>
 <body>
@@ -67,6 +68,15 @@ th{color:var(--mut);font-weight:600}
 </section>
 
 <section>
+  <h2>Test batch</h2>
+  <div class="row"><label>Number of tests<input type="number" id="count" value="1" min="1" max="200" inputmode="numeric"></label><div id="batchLbl" style="font-weight:700"></div></div>
+  <label style="margin-top:10px">Report for<select id="batchSel"></select></label>
+  <div class="row" style="margin-top:10px"><button class="pri" id="btnBShare">Share batch report</button><button id="btnBPdf">Download PDF</button><button id="btnBNew">New batch</button></div>
+  <button class="pri" id="btnShareReady" hidden style="margin-top:10px;width:100%">Share ready report</button>
+  <p class="note">A batch report includes only the tests completed so far, so you can stop at any point.</p>
+</section>
+
+<section>
   <h2>Job details</h2>
   <div class="grid">
     <label>Project no.<input type="text" id="m_project"></label><label>Site<input type="text" id="m_site"></label>
@@ -86,8 +96,16 @@ th{color:var(--mut);font-weight:600}
   <div class="row" style="margin-top:10px">
     <button class="pri" id="btnStart">Start test</button>
     <button class="stop" id="btnStop" disabled>End test</button>
+    <button id="btnPhLive" disabled>Photos for this test</button>
   </div>
   <p class="note">Pass: load stays at or above the target, continuously, for the full hold time.</p>
+</section>
+
+<section id="ph" hidden>
+  <h2 id="phTitle">Photos</h2>
+  <div class="row"><button class="pri" id="btnAddPh">Add photos</button><button id="btnClosePh">Done</button></div>
+  <input type="file" id="phFile" accept="image/*" multiple hidden>
+  <div id="phGrid"></div><p class="note" id="phCount"></p>
 </section>
 
 <section>
@@ -120,6 +138,8 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v)
 
 let cal=store.get('cal',{zero:0,scale:1,ok:false});
 let results=store.get('results',[]);
+let batch=store.get('batch',null);
+const rid=()=>Math.random().toString(36).slice(2,10);
 let raws=[],trace=[],live=false,sim=null,dev=null;
 let run=null; // {t0,data:[],peak,holdStart,longest,anchor,target,hold}
 
@@ -220,32 +240,36 @@ $('btnScale').onclick=()=>{const m=mean();if(m===null){status('Connect the gauge
 $('btnStart').onclick=()=>{
   if(live&&!cal.ok){status('Calibrate first (steps 1 and 2 below).');return}
   if(!live&&!sim){status('Connect the gauge, or try the simulator.');return}
-  run={t0:performance.now(),data:[],peak:0,holdStart:null,longest:0,anchor:$('anchor').value.trim()||'-',target:parseFloat($('target').value)||15,hold:parseFloat($('holdS').value)||30,meta:getMeta()};
+  const cnt=Math.max(1,parseInt($('count').value)||1);
+  if(!batch||batch.done>=batch.size)batch={id:rid(),size:cnt,done:0};
+  batch.size=cnt;store.set('batch',batch);
+  run={id:rid(),b:{id:batch.id,no:batch.done+1,size:batch.size},t0:performance.now(),data:[],peak:0,holdStart:null,longest:0,anchor:$('anchor').value.trim()||'-',target:parseFloat($('target').value)||15,hold:parseFloat($('holdS').value)||30,meta:getMeta()};
   $('holdNeed').textContent=run.hold;$('verdict').textContent='';$('peak').textContent='0.00';$('hold').textContent='0';
-  $('btnStart').disabled=true;$('btnStop').disabled=false;
+  $('btnStart').disabled=true;$('btnStop').disabled=false;$('btnPhLive').disabled=false;refreshBatch();
 };
 $('btnStop').onclick=()=>finish('');
 function finish(force){
   if(!run)return;
   const pass=run.longest>=run.hold, res=force||(pass?'PASS':'FAIL');
   const n=run.data.length,k=Math.max(1,Math.ceil(n/600));
-  const r={id:Math.random().toString(36).slice(2,10),anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,dur:n?+run.data[n-1][0].toFixed(1):0,result:res,at:new Date().toISOString(),meta:run.meta,data:run.data.filter((_,i)=>i%k===0||i===n-1).map(p=>[+p[0].toFixed(2),+p[1].toFixed(3)])};
+  const r={id:run.id,b:run.b,anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,dur:n?+run.data[n-1][0].toFixed(1):0,result:res,at:new Date().toISOString(),meta:run.meta,data:run.data.filter((_,i)=>i%k===0||i===n-1).map(p=>[+p[0].toFixed(2),+p[1].toFixed(3)])};
   results.push(r);
+  if(res!=='INTERRUPTED'&&batch){batch.done++;store.set('batch',batch)}
   store.set('results',results);
   const v=$('verdict');v.textContent=res;v.className=res==='PASS'?'ok':res==='FAIL'?'bad':'warn';
-  run=null;$('btnStart').disabled=false;$('btnStop').disabled=true;
-  const m=$('anchor').value.match(/^(.*?)(\d+)(\D*)$/); if(m)$('anchor').value=m[1]+String(+m[2]+1).padStart(m[2].length,'0')+m[3];
-  render();draw();showReport(r);
+  run=null;$('btnStart').disabled=false;$('btnStop').disabled=true;$('btnPhLive').disabled=true;
+  const m=$('anchor').value.match(/^(.*?)(\d+)(\D*)$/); if(m&&res!=='INTERRUPTED')$('anchor').value=m[1]+String(+m[2]+1).padStart(m[2].length,'0')+m[3];
+  render();refreshBatch();draw();showReport(r);
 }
 function render(){
-  $('rows').innerHTML=results.map((r,i)=>`<tr><td>${esc(r.anchor)}</td><td>${r.peak}</td><td>${r.hold}</td><td class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}"><b>${r.result}</b></td><td style="white-space:nowrap"><button class="sm" data-s="${i}">Share</button> <button class="sm" data-d="${i}">PDF</button></td></tr>`).join('')||'<tr><td colspan="5" class="note">No tests yet.</td></tr>';
+  $('rows').innerHTML=results.map((r,i)=>`<tr><td>${esc(r.anchor)}${r.b?` <span class="note">#${r.b.no}</span>`:''}</td><td>${r.peak}</td><td>${r.hold}</td><td class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}"><b>${r.result}</b></td><td><div style="display:flex;gap:4px;flex-wrap:wrap"><button class="sm" data-s="${i}">Share</button><button class="sm" data-d="${i}">PDF</button><button class="sm" data-p="${i}">Photos</button></div></td></tr>`).join('')||'<tr><td colspan="5" class="note">No tests yet.</td></tr>';
 }
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 $('btnCopy').onclick=async()=>{
   const csv=['anchor,target_kn,peak_kn,longest_hold_s,required_hold_s,result,time'].concat(results.map(r=>[r.anchor,r.target,r.peak,r.hold,r.need,r.result,r.at].join(','))).join('\n');
   try{await navigator.clipboard.writeText(csv);status('Results copied. Paste into a spreadsheet or message.')}catch(e){status('Copy was blocked by the browser.')}
 };
-$('btnClear').onclick=()=>{if(results.length&&confirm('Clear all saved results on this phone?')){results=[];store.set('results',results);render()}};
+$('btnClear').onclick=()=>{if(results.length&&confirm('Clear all saved results on this phone?')){results=[];batch=null;store.set('results',results);store.set('batch',null);render();refreshBatch()}};
 $('target').oninput=draw;window.addEventListener('resize',draw);
 
 // ---- job details ----
@@ -290,46 +314,120 @@ function drawReport(r){
   if(m.notes)tx(fit('Notes: '+m.notes,1040,22),100,1680,22,M);
   return cv;
 }
-function pdfFromJpeg(jpg,w,h){
+const W=1240,H=1754,FONT='system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif',INK='#111827',MUT='#6b7280';
+function mk(){const cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,W,H);return[cv,c]}
+function TX(c,t,x,y,sz,col,wt,al){c.font=`${wt||400} ${sz}px ${FONT}`;c.fillStyle=col;c.textAlign=al||'left';c.textBaseline='alphabetic';c.fillText(t,x,y)}
+function cut(c,t,w,sz){c.font=`400 ${sz}px ${FONT}`;t=String(t||'-');while(c.measureText(t).width>w&&t.length>1)t=t.slice(0,-2)+'…';return t}
+function drawSummary(all,pi){
+  const [cv,c]=mk(),done=all.filter(t=>t.result!=='INTERRUPTED'),np=done.filter(t=>t.result==='PASS').length,nf=done.length-np,ni=all.length-done.length,b=all[0].b||{},m=all[0].meta||{};
+  if(pi===0){
+    TX(c,'Anchor Pull Test Batch Report',100,150,48,INK,700);
+    TX(c,`Batch ${b.id}  ·  started ${all[0].at.slice(0,16).replace('T',' ')}`,100,196,24,MUT);
+    const ok=nf===0&&done.length>0,lbl=!done.length?'NO RESULTS':ok?'ALL PASS':nf+' FAILED',bw=lbl==='NO RESULTS'?300:ok?240:260;
+    c.fillStyle=ok?'#15803d':'#b91c1c';rr(c,W-100-bw,96,bw,86,18);c.fill();TX(c,lbl,W-100-bw/2,152,38,'#fff',800,'center');
+    [['Project',m.project],['Site',m.site],['Location',m.location],['Operator',m.operator]].forEach(([k,v],i)=>{const x=100+(i%2)*560,y=290+Math.floor(i/2)*66;TX(c,k,x,y,22,MUT);TX(c,cut(c,v,340,27),x+160,y,27,INK)});
+    TX(c,`${done.length} of ${done.length} tests completed  ·  ${np} passed  ·  ${nf} failed`+(ni?`  ·  ${ni} interrupted`:''),100,440,30,INK,700);
+  }else TX(c,'Batch results (continued)',100,150,40,INK,700);
+  const y0=560,cols=[['#',100],['Anchor ID',160],['Anchor type',380],['Peak kN',680],['Target kN',800],['Hold s',930],['Result',1030]];
+  cols.forEach(([k,x])=>TX(c,k,x,y0,21,MUT));c.strokeStyle='#e5e7eb';c.lineWidth=2;c.beginPath();c.moveTo(100,y0+14);c.lineTo(1140,y0+14);c.stroke();
+  all.slice(pi*24,pi*24+24).forEach((t,i)=>{const y=y0+56+i*52,I=t.result==='INTERRUPTED';
+    [[t.b?t.b.no:'',100],[cut(c,t.anchor,200,24),160],[cut(c,(t.meta||{}).type,280,24),380],[t.peak,680],[t.target,800],[t.hold,930]].forEach(([v,x])=>TX(c,String(v),x,y,24,INK));
+    TX(c,t.result,1030,y,I?20:24,t.result==='PASS'?'#15803d':I?'#b45309':'#b91c1c',700)});
+  return cv;
+}
+async function drawPhotoPage(r,ph,s){
+  const [cv,c]=mk();TX(c,'Photos: anchor '+r.anchor,100,150,40,INK,700);TX(c,`Test ${r.id}  ·  ${r.at.slice(0,16).replace('T',' ')}`,100,196,22,MUT);
+  for(let k=0;k<6&&ph[s+k];k++){
+    const bm=await createImageBitmap(ph[s+k].blob),x=100+(k%2)*540,y=250+Math.floor(k/2)*470,sc=Math.min(500/bm.width,380/bm.height),w=bm.width*sc,h=bm.height*sc;
+    c.drawImage(bm,x+(500-w)/2,y+(380-h)/2,w,h);bm.close&&bm.close();
+    TX(c,cut(c,`${s+k+1}. ${ph[s+k].cap||''}`.replace(/\.\s*$/,''),500,22),x,y+412,22,MUT);
+  }
+  return cv;
+}
+const dbp=new Promise((res,rej)=>{try{const q=indexedDB.open('pulltest',1);q.onupgradeneeded=()=>q.result.createObjectStore('p',{keyPath:'tid'});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}catch(e){rej(e)}});
+async function getPhotos(tid){try{const db=await dbp;return await new Promise(r=>{const q=db.transaction('p').objectStore('p').get(tid);q.onsuccess=()=>r((q.result&&q.result.list)||[]);q.onerror=()=>r([])})}catch(e){return[]}}
+async function setPhotos(tid,list){const db=await dbp;return new Promise((res,rej)=>{const t=db.transaction('p','readwrite');t.objectStore('p').put({tid,list});t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+function pdfFromJpegs(pgs){
   const enc=new TextEncoder(),parts=[],off=[];let len=0;
-  const push=x=>{const b=typeof x==='string'?enc.encode(x):x;parts.push(b);len+=b.length};
-  const obj=(n,body)=>{off[n]=len;push(n+' 0 obj\n'+body+'\nendobj\n')};
-  push('%PDF-1.4\n');
-  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');obj(2,'<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-  obj(3,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');
-  off[4]=len;push(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${w} /Height ${h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);push(jpg);push('\nendstream\nendobj\n');
-  const ct='q 595.28 0 0 841.89 0 0 cm /Im0 Do Q';obj(5,`<< /Length ${ct.length} >>\nstream\n${ct}\nendstream`);
-  let x='xref\n0 6\n0000000000 65535 f \n';for(let i=1;i<=5;i++)x+=String(off[i]).padStart(10,'0')+' 00000 n \n';
-  push(x+`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${len}\n%%EOF`);
+  const push=x=>{const b=typeof x==='string'?enc.encode(x):x;parts.push(b);len+=b.length},n=pgs.length,obj=(k,body)=>{off[k]=len;push(k+' 0 obj\n'+body+'\nendobj\n')};
+  push('%PDF-1.4\n');obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2,`<< /Type /Pages /Kids [${pgs.map((_,i)=>(3+3*i)+' 0 R').join(' ')}] /Count ${n} >>`);
+  pgs.forEach((jpg,i)=>{const p=3+3*i;
+    obj(p,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 ${p+1} 0 R >> >> /Contents ${p+2} 0 R >>`);
+    off[p+1]=len;push(`${p+1} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${W} /Height ${H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`);push(jpg);push('\nendstream\nendobj\n');
+    const ct='q 595.28 0 0 841.89 0 0 cm /Im0 Do Q';obj(p+2,`<< /Length ${ct.length} >>\nstream\n${ct}\nendstream`)});
+  const tot=3+3*n;let x=`xref\n0 ${tot}\n0000000000 65535 f \n`;for(let k=1;k<tot;k++)x+=String(off[k]).padStart(10,'0')+' 00000 n \n';
+  push(x+`trailer\n<< /Size ${tot} /Root 1 0 R >>\nstartxref\n${len}\n%%EOF`);
   return new Blob(parts,{type:'application/pdf'});
 }
-async function makePdf(r){
-  const cv=drawReport(r),blob=await new Promise(res=>cv.toBlob(res,'image/jpeg',0.92));
-  return pdfFromJpeg(new Uint8Array(await blob.arrayBuffer()),cv.width,cv.height);
+const jpg=async cv=>new Uint8Array(await(await new Promise(r=>cv.toBlob(r,'image/jpeg',.88))).arrayBuffer());
+async function buildPdf(tests,batchMode){
+  const pgs=[];
+  if(batchMode)for(let i=0;i<Math.max(1,Math.ceil(tests.length/24));i++)pgs.push(await jpg(drawSummary(tests,i)));
+  for(const t of tests){pgs.push(await jpg(drawReport(t)));const ph=await getPhotos(t.id);for(let i=0;i<ph.length;i+=6)pgs.push(await jpg(await drawPhotoPage(t,ph,i)))}
+  return pdfFromJpegs(pgs);
 }
 const fname=r=>'pulltest_'+String(r.anchor||r.id).replace(/[^\w.-]+/g,'_')+'.pdf';
 function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
-async function shareReport(r){
+let pendingFile=null;
+async function trySend(file,text){
+  try{await navigator.share({files:[file],title:'Anchor pull test report',text});return true}
+  catch(e){if(e.name==='AbortError')return true;return false}
+}
+async function deliver(build,name,text,share){
   try{
-    const pdf=await makePdf(r),file=new File([pdf],fname(r),{type:'application/pdf'});
-    if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{await navigator.share({files:[file],title:'Anchor pull test report',text:`Anchor ${r.anchor}: ${r.result}`});return}catch(e){if(e.name==='AbortError')return}
+    status('Building report…');const pdf=await build(),file=new File([pdf],name,{type:'application/pdf'});
+    if(share&&navigator.canShare&&navigator.canShare({files:[file]})){
+      if(await trySend(file,text)){status('');return}
+      pendingFile={file,text};$('btnShareReady').hidden=false;status('Report is ready. Tap "Share ready report".');return;
     }
-    download(pdf,fname(r));status('Sharing is not available here, so the PDF was downloaded instead.');
+    download(pdf,name);status(share?'Sharing is not available here, so the PDF was downloaded instead.':'Report downloaded.');
   }catch(e){status('Could not create the report: '+(e.message||e))}
 }
-async function pdfReport(r){try{download(await makePdf(r),fname(r))}catch(e){status('Could not create the report: '+(e.message||e))}}
+$('btnShareReady').onclick=async()=>{if(!pendingFile)return;const p=pendingFile;if(await trySend(p.file,p.text)){pendingFile=null;$('btnShareReady').hidden=true;status('')}else{download(p.file,p.file.name);status('Sharing failed, so the PDF was downloaded instead.')}};
 let lastR=null;
 function showReport(r){
   lastR=r;$('rep').hidden=false;
   $('repInfo').innerHTML=`Anchor <b>${esc(r.anchor)}</b>: <b class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}">${r.result}</b> (peak ${r.peak} kN, held ${r.hold} of ${r.need} s)`;
   $('rep').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
-$('btnShare').onclick=()=>lastR&&shareReport(lastR);
-$('btnPdf').onclick=()=>lastR&&pdfReport(lastR);
-$('rows').onclick=e=>{const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.s!==undefined)shareReport(results[+b.dataset.s]);else if(b.dataset.d!==undefined)pdfReport(results[+b.dataset.d])};
-calText();render();draw();
+const one=(r,sh)=>deliver(()=>buildPdf([r],false),fname(r),`Anchor ${r.anchor}: ${r.result}`,sh);
+$('btnShare').onclick=()=>lastR&&one(lastR,true);
+$('btnPdf').onclick=()=>lastR&&one(lastR,false);
+$('rows').onclick=e=>{const b=e.target.closest('button');if(!b)return;const d=b.dataset;
+  if(d.s!==undefined)one(results[+d.s],true);else if(d.d!==undefined)one(results[+d.d],false);
+  else if(d.p!==undefined)openPhotos(results[+d.p].id,results[+d.p].anchor)};
+// ---- batches ----
+function refreshBatch(){
+  const n=Math.max(1,parseInt($('count').value)||1);
+  $('batchLbl').textContent=batch&&batch.done<batch.size?`Test ${batch.done+1} of ${batch.size} (${batch.done} done)`:batch?`Batch complete: ${batch.done} of ${batch.size}`:`Ready: test 1 of ${n}`;
+  const ids=[...new Set(results.filter(r=>r.b).map(r=>r.b.id))],prev=$('batchSel').value;
+  $('batchSel').innerHTML=ids.map(id=>{const t=results.filter(r=>r.b&&r.b.id===id),k=t.filter(r=>r.result!=='INTERRUPTED').length;return `<option value="${id}">${t[0].at.slice(0,16).replace('T',' ')}: ${k} of ${t[0].b.size} done${batch&&batch.id===id?' (current)':''}</option>`}).join('');
+  $('batchSel').value=ids.includes(prev)?prev:(batch&&ids.includes(batch.id)?batch.id:ids[ids.length-1]||'');
+}
+function batchTests(){const id=$('batchSel').value;return results.filter(r=>r.b&&r.b.id===id).sort((a,b)=>a.b.no-b.b.no||a.at.localeCompare(b.at))}
+function batchDo(sh){const t=batchTests();if(!t.length){status('No tests in this batch yet.');return}
+  deliver(()=>buildPdf(t,true),'pulltest_batch_'+t[0].b.id+'.pdf',`Batch report: ${t.filter(x=>x.result!=='INTERRUPTED').length} tests`,sh)}
+$('btnBShare').onclick=()=>batchDo(true);$('btnBPdf').onclick=()=>batchDo(false);
+$('btnBNew').onclick=()=>{if(run){status('End the current test first.');return}batch=null;store.set('batch',null);refreshBatch()};
+$('count').oninput=refreshBatch;
+// ---- photos ----
+let phTid=null;
+async function shrink(f){const b=await createImageBitmap(f,{imageOrientation:'from-image'}),k=Math.min(1,1400/Math.max(b.width,b.height)),cv=document.createElement('canvas');cv.width=Math.round(b.width*k);cv.height=Math.round(b.height*k);cv.getContext('2d').drawImage(b,0,0,cv.width,cv.height);return new Promise(r=>cv.toBlob(r,'image/jpeg',.82))}
+async function renderPhotos(){
+  const list=await getPhotos(phTid),g=$('phGrid');g.innerHTML='';
+  list.forEach((p,i)=>{const d=document.createElement('div'),im=new Image(),inp=document.createElement('input'),rm=document.createElement('button');
+    im.src=URL.createObjectURL(p.blob);im.style.cssText='width:100%;border-radius:6px';inp.type='text';inp.placeholder='Caption';inp.value=p.cap||'';
+    inp.onchange=async()=>{list[i].cap=inp.value;await setPhotos(phTid,list)};rm.className='sm';rm.textContent='Remove';
+    rm.onclick=async()=>{list.splice(i,1);await setPhotos(phTid,list);renderPhotos()};d.append(im,inp,rm);g.append(d)});
+  $('phCount').textContent=list.length+' photo(s). They are added to the report for this anchor.';
+}
+async function openPhotos(tid,label){phTid=tid;$('phTitle').textContent='Photos: anchor '+label;$('ph').hidden=false;await renderPhotos();$('ph').scrollIntoView({behavior:'smooth',block:'start'})}
+$('btnAddPh').onclick=()=>$('phFile').click();$('btnClosePh').onclick=()=>{$('ph').hidden=true};
+$('btnPhLive').onclick=()=>run&&openPhotos(run.id,run.anchor);
+$('phFile').onchange=async e=>{const list=await getPhotos(phTid);for(const f of e.target.files){try{list.push({blob:await shrink(f),cap:''})}catch(x){status('Could not read '+f.name+' (use JPG or PNG).')}}
+  try{await setPhotos(phTid,list)}catch(x){status('Could not save photos: '+(x.message||x))}e.target.value='';renderPhotos()};
+calText();render();refreshBatch();draw();
 })();
 </script>
 </body>
