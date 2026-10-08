@@ -38,6 +38,7 @@ th{color:var(--mut);font-weight:600}
 .note{font-size:13px;color:var(--mut);margin:8px 0 0}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .w{grid-column:1/-1}button.sm{min-height:36px;padding:0 10px;font-size:13px}
 select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:0 10px;width:100%}#phGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}#phGrid input{margin:4px 0}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -76,12 +77,17 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <p class="note">A batch report includes only the tests completed so far, so you can stop at any point.</p>
 </section>
 
-<section>
+<section id="lockCard" hidden>
+  <div id="lockText" style="margin-bottom:8px"></div>
+  <button class="sm" id="btnUnlock">Edit details</button>
+</section>
+
+<section class="grp">
   <h2>Site</h2>
   <div class="grid"><label class="w">Name<input type="text" id="m_sName"></label><label class="w">Address<input type="text" id="m_sAddr"></label><label>Contact<input type="text" id="m_sContact"></label><label>Telephone<input type="text" id="m_sPhone" inputmode="tel"></label><label class="w">Email<input type="text" id="m_sEmail" inputmode="email"></label></div>
 </section>
 
-<section>
+<section class="grp">
   <h2>Client</h2>
   <div class="grid"><label class="w">Name<input type="text" id="m_cName"></label><label class="w">Address<input type="text" id="m_cAddr"></label><label>Contact<input type="text" id="m_cContact"></label><label>Telephone<input type="text" id="m_cPhone" inputmode="tel"></label><label class="w">Email<input type="text" id="m_cEmail" inputmode="email"></label></div>
 </section>
@@ -89,9 +95,9 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
 <section>
   <h2>Job details</h2>
   <div class="grid">
-    <label class="w">Report no.<input type="text" id="m_ref" placeholder="e.g. 004-5532-DMC"></label>
-    <label>Project no.<input type="text" id="m_project"></label><label>Location<input type="text" id="m_location"></label>
-    <label>Operator<input type="text" id="m_operator"></label><label>Anchor type<input type="text" id="m_type"></label>
+    <label class="w pj">Report no.<input type="text" id="m_ref" placeholder="e.g. 004-5532-DMC"></label>
+    <label class="pj">Project no.<input type="text" id="m_project"></label><label>Location<input type="text" id="m_location"></label>
+    <label class="pj">Operator<input type="text" id="m_operator"></label><label>Anchor type<input type="text" id="m_type"></label>
     <label class="w">Substrate<input type="text" id="m_substrate"></label>
     <label class="w">Notes<input type="text" id="m_notes"></label>
   </div>
@@ -137,7 +143,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
-<p class="note" style="text-align:center">Version 8 Oct 2026 (b): larger logo, smaller report number and date</p>
+<p class="note" style="text-align:center">Version 8 Oct 2026 (c): site and client details hide while a batch is running</p>
 </main>
 
 <script>
@@ -401,6 +407,7 @@ async function drawPhotoPage(r,ph,s){
   return cv;
 }
 const dbp=new Promise((res,rej)=>{try{const q=indexedDB.open('pulltest',1);q.onupgradeneeded=()=>q.result.createObjectStore('p',{keyPath:'tid'});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}catch(e){rej(e)}});
+dbp.catch(()=>{});
 async function getPhotos(tid){try{const db=await dbp;return await new Promise(r=>{const q=db.transaction('p').objectStore('p').get(tid);q.onsuccess=()=>r((q.result&&q.result.list)||[]);q.onerror=()=>r([])})}catch(e){return[]}}
 async function setPhotos(tid,list){const db=await dbp;return new Promise((res,rej)=>{const t=db.transaction('p','readwrite');t.objectStore('p').put({tid,list});t.oncomplete=res;t.onerror=()=>rej(t.error)})}
 function pdfFromJpegs(pgs){
@@ -455,12 +462,25 @@ $('rows').onclick=e=>{const b=e.target.closest('button');if(!b)return;const d=b.
   if(d.s!==undefined)one(results[+d.s],true);else if(d.d!==undefined)one(results[+d.d],false);
   else if(d.p!==undefined)openPhotos(results[+d.p].id,results[+d.p].anchor)};
 // ---- batches ----
+let unlocked=false;
+function applyLock(){
+  const lock=!!batch&&(!!run||batch.done<batch.size);
+  if(!lock)unlocked=false;
+  const hide=lock&&!unlocked;
+  document.querySelectorAll('.grp,.pj').forEach(e=>e.hidden=hide);
+  const m=getMeta();
+  $('lockCard').hidden=!lock;
+  $('lockText').textContent='Site: '+(m.sName||'-')+'  ·  Client: '+(m.cName||'-')+'  ·  Project: '+(m.project||'-')+(m.ref?'  ·  Report no. '+m.ref:'');
+  $('btnUnlock').textContent=unlocked?'Hide details':'Edit details';
+}
+$('btnUnlock').onclick=()=>{unlocked=!unlocked;applyLock()};
 function refreshBatch(){
   const n=Math.max(1,parseInt($('count').value)||1);
   $('batchLbl').textContent=batch&&batch.done<batch.size?`Test ${batch.done+1} of ${batch.size} (${batch.done} done)`:batch?`Batch complete: ${batch.done} of ${batch.size}`:`Ready: test 1 of ${n}`;
   const ids=[...new Set(results.filter(r=>r.b).map(r=>r.b.id))],prev=$('batchSel').value;
   $('batchSel').innerHTML=ids.map(id=>{const t=results.filter(r=>r.b&&r.b.id===id),k=t.filter(r=>r.result!=='INTERRUPTED').length;return `<option value="${id}">${t[0].at.slice(0,16).replace('T',' ')}: ${k} of ${t[0].b.size} done${batch&&batch.id===id?' (current)':''}</option>`}).join('');
   $('batchSel').value=ids.includes(prev)?prev:(batch&&ids.includes(batch.id)?batch.id:ids[ids.length-1]||'');
+  applyLock();
 }
 function batchTests(){const id=$('batchSel').value;return results.filter(r=>r.b&&r.b.id===id).sort((a,b)=>a.b.no-b.b.no||a.at.localeCompare(b.at))}
 function batchDo(sh){const t=batchTests();if(!t.length){status('No tests in this batch yet.');return}
