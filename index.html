@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Anchor Pull Test</title>
+<style>
+:root{--bg:#eef1ef;--card:#fff;--fg:#14201c;--mut:#5d6b66;--line:#d3dad6;--acc:#0b6e6e;--ok:#1d7a3a;--bad:#b3261e;--warn:#a35c00;--trace:#0b6e6e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1614;--card:#17221f;--fg:#e8efec;--mut:#93a39d;--line:#2a3a35;--acc:#4fc3bd;--ok:#5fd07f;--bad:#ff7b72;--warn:#f0b04a;--trace:#4fc3bd}}
+:root[data-theme="dark"]{--bg:#0e1614;--card:#17221f;--fg:#e8efec;--mut:#93a39d;--line:#2a3a35;--acc:#4fc3bd;--ok:#5fd07f;--bad:#ff7b72;--warn:#f0b04a;--trace:#4fc3bd}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:14px 14px 40px;display:grid;gap:12px}
+h1{font-size:20px;margin:4px 0 0}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+h2{font-size:15px;margin:0 0 10px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:1 1 120px}
+button{font:inherit;font-weight:600;min-height:48px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 14px}
+button.pri{background:var(--acc);border-color:var(--acc);color:var(--bg)}
+button.stop{background:var(--bad);border-color:var(--bad);color:#fff}
+button:disabled{opacity:.45}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+label{display:grid;gap:4px;font-size:13px;color:var(--mut)}
+input[type=text],input[type=number]{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:0 10px;width:100%}
+.big{font-size:56px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.big small{font-size:22px;color:var(--mut);font-weight:600}
+.stats{display:flex;gap:16px;color:var(--mut);font-variant-numeric:tabular-nums;margin-top:6px;flex-wrap:wrap}
+canvas{width:100%;height:220px;display:block;margin-top:10px}
+#status{color:var(--mut);font-size:14px;min-height:20px}
+#verdict{font-weight:800;font-size:22px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+th{color:var(--mut);font-weight:600}
+.note{font-size:13px;color:var(--mut);margin:8px 0 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Anchor pull test</h1>
+
+<section>
+  <h2>Gauge</h2>
+  <div class="row">
+    <button class="pri" id="btnConnect">Connect gauge</button>
+    <button id="btnSim">Try simulator</button>
+  </div>
+  <label style="margin-top:10px;display:flex;gap:8px;align-items:center"><input type="checkbox" id="chkAll"> Show all Bluetooth devices</label>
+  <div id="status">Not connected.</div>
+  <p class="note" id="support"></p>
+</section>
+
+<section>
+  <div class="big"><span id="load">0.00</span> <small>kN</small></div>
+  <div class="stats"><span>peak <b id="peak">0.00</b></span><span>hold <b id="hold">0</b>/<b id="holdNeed">30</b> s</span><span id="verdict"></span></div>
+  <canvas id="cv"></canvas>
+</section>
+
+<section>
+  <h2>Test</h2>
+  <div class="row">
+    <label>Anchor ID<input type="text" id="anchor" value="A-01" autocomplete="off"></label>
+    <label>Target kN<input type="number" id="target" value="15" step="0.1" min="0.1" inputmode="decimal"></label>
+    <label>Hold s<input type="number" id="holdS" value="30" step="1" min="1" inputmode="numeric"></label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="pri" id="btnStart">Start test</button>
+    <button class="stop" id="btnStop" disabled>Stop and save</button>
+  </div>
+  <p class="note">Pass: load stays at or above the target, continuously, for the full hold time.</p>
+</section>
+
+<section>
+  <h2>Calibration</h2>
+  <div>Raw reading: <b id="raw">-</b></div>
+  <div class="row" style="margin-top:10px">
+    <button id="btnZero">1. Set zero (no load)</button>
+  </div>
+  <div class="row" style="margin-top:10px;align-items:end">
+    <label>Gauge display, kN<input type="number" id="disp" value="10" step="0.1" inputmode="decimal"></label>
+    <button id="btnScale">2. Set scale (hold that load)</button>
+  </div>
+  <div id="calStatus" class="note"></div>
+</section>
+
+<section>
+  <h2>Results</h2>
+  <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+  <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
+</section>
+</main>
+
+<script>
+(function(){
+const SVC='7312f36c-a5b4-11e6-80f5-76304dec7eb7';
+const CHARS=['7312f36e-a5b4-11e6-80f5-76304dec7eb7','7312f37f-a5b4-11e6-80f5-76304dec7eb7','7312f380-a5b4-11e6-80f5-76304dec7eb7'];
+const STREAM=CHARS[2];
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+let cal=store.get('cal',{zero:0,scale:1,ok:false});
+let results=store.get('results',[]);
+let raws=[],trace=[],live=false,sim=null,dev=null;
+let run=null; // {t0,data:[],peak,holdStart,longest,anchor,target,hold}
+
+function status(m){$('status').textContent=m}
+function calText(){ $('calStatus').textContent=cal.ok?`Calibrated. zero ${cal.zero.toFixed(1)}, scale ${cal.scale.toPrecision(5)}`:'Not calibrated. Connect, then do steps 1 and 2.'; $('calStatus').className='note '+(cal.ok?'ok':'bad'); }
+function mean(){return raws.length?raws.reduce((a,b)=>a+b,0)/raws.length:null}
+
+function onRaw(r){ raws.push(r); if(raws.length>25)raws.shift(); $('raw').textContent=r.toFixed(2); onLoad((r-cal.zero)*cal.scale); }
+function onLoad(kn){
+  $('load').textContent=kn.toFixed(2);
+  const now=performance.now();
+  if(run){
+    const t=(now-run.t0)/1000; run.data.push([t,kn]);
+    if(kn>run.peak)run.peak=kn;
+    if(kn>=run.target){ if(run.holdStart===null)run.holdStart=t; run.longest=Math.max(run.longest,t-run.holdStart);} else run.holdStart=null;
+    const cur=run.holdStart===null?0:t-run.holdStart;
+    $('peak').textContent=run.peak.toFixed(2); $('hold').textContent=cur.toFixed(0);
+    $('hold').className=cur>=run.hold?'ok':'';
+  } else { trace.push([now/1000,kn]); if(trace.length>600)trace.shift(); }
+  draw();
+}
+
+function draw(){
+  const cv=$('cv'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  if(cv.width!==w*dpr){cv.width=w*dpr;cv.height=h*dpr}
+  const c=cv.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+  const css=getComputedStyle(document.documentElement);
+  const col=n=>css.getPropertyValue(n).trim();
+  const target=parseFloat($('target').value)||15;
+  let pts,x0;
+  if(run){pts=run.data;x0=0}else{pts=trace;x0=pts.length?pts[0][0]:0;}
+  const xs=pts.map(p=>p[0]-x0),ys=pts.map(p=>p[1]);
+  const xmax=Math.max(30,xs.length?xs[xs.length-1]:0),ymax=Math.max(target*1.3,ys.length?Math.max(...ys)*1.1:0,5);
+  const L=34,B=20,T=6,R=8,pw=w-L-R,ph=h-B-T;
+  const X=x=>L+x/xmax*pw,Y=y=>T+ph-Math.max(0,y)/ymax*ph;
+  c.strokeStyle=col('--line');c.fillStyle=col('--mut');c.font='11px system-ui';c.lineWidth=1;
+  for(let i=0;i<=4;i++){const v=ymax*i/4,y=Y(v);c.beginPath();c.moveTo(L,y);c.lineTo(w-R,y);c.stroke();c.fillText(v.toFixed(0),2,y+4)}
+  c.fillText(xmax.toFixed(0)+' s',w-R-34,h-4);
+  c.setLineDash([6,4]);c.strokeStyle=col('--bad');c.beginPath();c.moveTo(L,Y(target));c.lineTo(w-R,Y(target));c.stroke();c.setLineDash([]);
+  if(pts.length>1){c.strokeStyle=col('--trace');c.lineWidth=2;c.beginPath();pts.forEach((p,i)=>{const x=X(p[0]-x0),y=Y(p[1]);i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()}
+}
+
+// ---- Bluetooth ----
+function checkSupport(){
+  const pp=document.permissionsPolicy||document.featurePolicy;
+  const blocked=pp&&pp.allowsFeature&&!pp.allowsFeature('bluetooth');
+  const framed=window.self!==window.top;
+  let m,bad=true;
+  if(!('bluetooth' in navigator))m='This browser cannot use Bluetooth. Open the page in Chrome on Android, not inside another app.';
+  else if(blocked||(framed&&!pp))m='This page is embedded in another page, so the browser blocks Bluetooth here. Open it from its own web address to connect.';
+  else{bad=false;m='Tap Connect gauge. Chrome asks for Nearby devices permission the first time. Bluetooth must be on (and Location on Android 11 or older).'}
+  $('support').textContent=m;$('support').className='note'+(bad?' bad':'');
+}
+checkSupport();
+$('btnConnect').onclick=async()=>{
+  if(!('bluetooth' in navigator)){status('Web Bluetooth is not available here. Open this page in Chrome on Android.');return}
+  stopSim();
+  try{
+    status('Choose the gauge in the list…');
+    const opts=$('chkAll').checked?{acceptAllDevices:true,optionalServices:[SVC]}:{filters:[{services:[SVC]}]};
+    dev=await navigator.bluetooth.requestDevice(opts);
+    dev.addEventListener('gattserverdisconnected',onLost);
+    status('Connecting…');
+    const srv=await dev.gatt.connect(), svc=await srv.getPrimaryService(SVC);
+    for(const u of CHARS){
+      const ch=await svc.getCharacteristic(u);
+      if(u===STREAM)ch.addEventListener('characteristicvaluechanged',e=>{const dv=e.target.value;if(dv.byteLength>=4)onRaw(dv.getFloat32(0,true))});
+      await ch.startNotifications();
+    }
+    live=true;status('Connected: '+(dev.name||'gauge')+'. Receiving readings.');
+  }catch(e){
+    const n=e.name||'';let hint='';
+    if(n==='SecurityError'||/permissions policy|disallowed/i.test(e.message||''))hint=' Bluetooth is blocked because this page is embedded. Open it from its own web address.';
+    else if(n==='NotAllowedError')hint=' Permission was denied. In Chrome tap the lock icon, then Permissions, and allow Nearby devices. Also check Android Settings, Apps, Chrome, Permissions.';
+    else if(n==='NotFoundError')hint=' No gauge was chosen. Tick "Show all Bluetooth devices" and try again.';
+    status('Could not connect: '+n+' '+(e.message||'')+hint);
+  }
+};
+function onLost(){ live=false; status('Connection to the gauge was lost. Press Connect gauge.'); if(run)finish('INTERRUPTED') }
+
+// ---- simulator ----
+function stopSim(){ if(sim){clearInterval(sim);sim=null;$('btnSim').textContent='Try simulator'} }
+$('btnSim').onclick=()=>{
+  if(sim){stopSim();status('Simulator stopped.');return}
+  const tgt=()=>parseFloat($('target').value)||15; let v=0,ph=0;
+  $('btnSim').textContent='Stop simulator';status('Simulator running (no gauge).');
+  sim=setInterval(()=>{ if(ph===0){v+=0.25;if(v>=tgt()*1.05)ph=1}else v+=(tgt()*1.05-v)*0.1+(Math.random()-.5)*0.1; onLoad(v+(Math.random()-.5)*0.08) },100);
+};
+
+// ---- calibration ----
+$('btnZero').onclick=()=>{const m=mean();if(m===null){status('Connect the gauge first.');return}cal={zero:m,scale:1,ok:false};store.set('cal',cal);calText()};
+$('btnScale').onclick=()=>{const m=mean();if(m===null){status('Connect the gauge first.');return}
+  const span=m-cal.zero,d=parseFloat($('disp').value);
+  if(!d||Math.abs(span)<1e-6){status('Hold a steady load first, and enter the gauge display.');return}
+  cal.scale=d/span;cal.ok=true;store.set('cal',cal);calText()};
+
+// ---- test ----
+$('btnStart').onclick=()=>{
+  if(live&&!cal.ok){status('Calibrate first (steps 1 and 2 below).');return}
+  if(!live&&!sim){status('Connect the gauge, or try the simulator.');return}
+  run={t0:performance.now(),data:[],peak:0,holdStart:null,longest:0,anchor:$('anchor').value.trim()||'-',target:parseFloat($('target').value)||15,hold:parseFloat($('holdS').value)||30};
+  $('holdNeed').textContent=run.hold;$('verdict').textContent='';$('peak').textContent='0.00';$('hold').textContent='0';
+  $('btnStart').disabled=true;$('btnStop').disabled=false;
+};
+$('btnStop').onclick=()=>finish('');
+function finish(force){
+  if(!run)return;
+  const pass=run.longest>=run.hold, res=force||(pass?'PASS':'FAIL');
+  results.push({anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,result:res,at:new Date().toISOString()});
+  store.set('results',results);
+  const v=$('verdict');v.textContent=res;v.className=res==='PASS'?'ok':res==='FAIL'?'bad':'warn';
+  run=null;$('btnStart').disabled=false;$('btnStop').disabled=true;
+  const m=$('anchor').value.match(/^(.*?)(\d+)(\D*)$/); if(m)$('anchor').value=m[1]+String(+m[2]+1).padStart(m[2].length,'0')+m[3];
+  render();draw();
+}
+function render(){
+  $('rows').innerHTML=results.map(r=>`<tr><td>${esc(r.anchor)}</td><td>${r.peak}</td><td>${r.hold}</td><td class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}"><b>${r.result}</b></td></tr>`).join('')||'<tr><td colspan="4" class="note">No tests yet.</td></tr>';
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+$('btnCopy').onclick=async()=>{
+  const csv=['anchor,target_kn,peak_kn,longest_hold_s,required_hold_s,result,time'].concat(results.map(r=>[r.anchor,r.target,r.peak,r.hold,r.need,r.result,r.at].join(','))).join('\n');
+  try{await navigator.clipboard.writeText(csv);status('Results copied. Paste into a spreadsheet or message.')}catch(e){status('Copy was blocked by the browser.')}
+};
+$('btnClear').onclick=()=>{if(results.length&&confirm('Clear all saved results on this phone?')){results=[];store.set('results',results);render()}};
+$('target').oninput=draw;window.addEventListener('resize',draw);
+calText();render();draw();
+})();
+</script>
+</body>
+</html>
