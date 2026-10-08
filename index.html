@@ -137,7 +137,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
-<p class="note" style="text-align:center">Version 8 Oct 2026: report pages after the first show results only</p>
+<p class="note" style="text-align:center">Version 8 Oct 2026 (b): larger logo, smaller report number and date</p>
 </main>
 
 <script>
@@ -342,9 +342,9 @@ function wrapLines(c,t,w,sz,max,wt){
   return out}
 function drawHead(c,r0,batch){
   const raw=String((r0.meta&&r0.meta.ref)||'').trim(),ref=batch?(/\{/.test(raw)?'':raw):refText(r0);
-  if(ref)TX(c,'Report No. '+ref,100,66,26,'#6b7280');
-  TX(c,fmtDate(r0.at),1140,66,26,'#6b7280',400,'right');
-  if(logoImg.complete&&logoImg.naturalWidth){const w=800,h=w*logoImg.naturalHeight/logoImg.naturalWidth;c.drawImage(logoImg,100,96,w,h);return 96+h}
+  if(ref)TX(c,'Report No. '+ref,100,56,20,'#6b7280');
+  TX(c,fmtDate(r0.at),1140,56,20,'#6b7280',400,'right');
+  if(logoImg.complete&&logoImg.naturalWidth){const w=1040,h=w*logoImg.naturalHeight/logoImg.naturalWidth;c.drawImage(logoImg,100,80,w,h);return 80+h}
   TX(c,'APPLIED FORCE ENGINEERING',100,150,40,INK,700);['ABN 69 676 879 940','UNIT 4/434 THE BOULEVARDE','KIRRAWEE NSW 2232'].forEach((t,i)=>TX(c,t,100,200+i*36,26,INK,700));return 290;
 }
 function drawParties(c,y,m){
