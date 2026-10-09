@@ -39,6 +39,7 @@ th{color:var(--mut);font-weight:600}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .w{grid-column:1/-1}button.sm{min-height:36px;padding:0 10px;font-size:13px}
 select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:0 10px;width:100%}#phGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}#phGrid input{margin:4px 0}
 [hidden]{display:none!important}
+textarea{font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:8px 10px;width:100%;resize:vertical}
 </style>
 </head>
 <body>
@@ -65,6 +66,8 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
 <section id="rep" hidden>
   <h2>Test report</h2>
   <div id="repInfo"></div>
+  <label id="failBox" hidden style="margin-top:10px">Reason for failure<textarea id="repFail" rows="3" placeholder="Explain why this anchor failed"></textarea></label>
+  <label style="margin-top:10px">Notes (optional)<textarea id="repNote" rows="2"></textarea></label>
   <div class="row" style="margin-top:10px"><button class="pri" id="btnShare">Share report</button><button id="btnPdf">Download PDF</button></div>
 </section>
 
@@ -114,7 +117,6 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
     <label class="w pj">Report no.<input type="text" id="m_ref" placeholder="e.g. 004-5532-DMC"></label>
     <label class="pj">Project no.<input type="text" id="m_project"></label><label>Location<input type="text" id="m_location"></label>
     <label class="pj">Operator<input type="text" id="m_operator"></label><label>Anchor type<input type="text" id="m_type"></label>
-    <label class="w">Notes<input type="text" id="m_notes"></label>
   </div>
 </section>
 
@@ -125,6 +127,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
     <label>Target kN<input type="number" id="target" value="15" step="0.1" min="0.1" inputmode="decimal"></label>
     <label>Hold s<input type="number" id="holdS" value="30" step="1" min="1" inputmode="numeric"></label>
   </div>
+  <label style="margin-top:10px">Test notes (optional)<textarea id="liveNote" rows="2" placeholder="Anything worth recording about this test"></textarea></label>
   <div class="row" style="margin-top:10px">
     <button class="pri" id="btnStart">Start test</button>
     <button class="stop" id="btnStop" disabled>End test</button>
@@ -158,7 +161,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
-<p class="note" style="text-align:center">Version 8 Oct 2026 (f): fixing details table on the batch report</p>
+<p class="note" style="text-align:center">Version 8 Oct 2026 (g): reason for failure and optional test notes</p>
 </main>
 
 <script>
@@ -285,9 +288,10 @@ function finish(force){
   if(!run)return;
   const pass=run.longest>=run.hold, res=force||(pass?'PASS':'FAIL');
   const n=run.data.length,k=Math.max(1,Math.ceil(n/600));
-  const r={id:run.id,b:run.b,anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,dur:n?+run.data[n-1][0].toFixed(1):0,result:res,at:new Date().toISOString(),meta:run.meta,data:run.data.filter((_,i)=>i%k===0||i===n-1).map(p=>[+p[0].toFixed(2),+p[1].toFixed(3)])};
+  const r={id:run.id,b:run.b,note:$('liveNote').value.trim(),failReason:'',anchor:run.anchor,target:run.target,peak:+run.peak.toFixed(2),hold:+run.longest.toFixed(1),need:run.hold,dur:n?+run.data[n-1][0].toFixed(1):0,result:res,at:new Date().toISOString(),meta:run.meta,data:run.data.filter((_,i)=>i%k===0||i===n-1).map(p=>[+p[0].toFixed(2),+p[1].toFixed(3)])};
   results.push(r);
   if(res!=='INTERRUPTED'&&batch){batch.done++;store.set('batch',batch)}
+  if(res!=='INTERRUPTED')$('liveNote').value='';
   store.set('results',results);
   const v=$('verdict');v.textContent=res;v.className=res==='PASS'?'ok':res==='FAIL'?'bad':'warn';
   run=null;$('btnStart').disabled=false;$('btnStop').disabled=true;$('btnPhLive').disabled=true;
@@ -314,7 +318,7 @@ $('btnClear').onclick=async()=>{
 $('target').oninput=draw;window.addEventListener('resize',draw);
 
 // ---- job details ----
-const MF=['project','location','operator','type','substrate','notes','ref','sName','sAddr','sContact','sPhone','sEmail','cName','cAddr','cContact','cPhone','cEmail','fixType','size','maker','partNo','testType'];
+const MF=['project','location','operator','type','substrate','ref','sName','sAddr','sContact','sPhone','sEmail','cName','cAddr','cContact','cPhone','cEmail','fixType','size','maker','partNo','testType'];
 const savedMeta=store.get('meta',{});
 MF.forEach(k=>{const e=$('m_'+k);e.value=savedMeta[k]||'';e.oninput=()=>store.set('meta',getMeta())});
 if(!$('m_testType').value)$('m_testType').value='Proof Test';
@@ -335,7 +339,10 @@ function drawReport(r,lean){
   y+=50;y=drawParties(c,y,m)+40;
   y=drawInfo(c,y,[['Project',m.project],['Location',m.location],['Operator',m.operator]],[['Anchor ID',r.anchor],['Anchor type',m.type],['Substrate',m.substrate]],190,330)+50;
   }
-  const nl=(m.notes&&!lean)?wrapLines(c,'Notes: '+m.notes,1040,22,6):[],sh=Math.max(0,nl.length-2)*30;
+  const blocks=[];
+  if(r.result==='FAIL'&&r.failReason)blocks.push(['Reason for failure',wrapLines(c,r.failReason,1040,24,10),'#b91c1c']);
+  const nt=noteOf(r);if(nt)blocks.push(['Notes',wrapLines(c,nt,1040,24,10),INK]);
+  const bh=blocks.reduce((a,b)=>a+50+b[1].length*30,0),yb0=(lean?1240:1668)+(r.result==='INTERRUPTED'?(lean?50:36):0),sh=lean?0:Math.max(0,yb0+bh-1740);
   const L=170,R=1140,TP=y+30,B=(lean?1000:1420)-sh,d=r.data.length?r.data:[[0,0]],G='#e5e7eb',mx=Math.max(r.target*1.2,r.peak*1.1,1),ys=step(mx,8),ymax=Math.ceil(mx/ys)*ys;
   const xmax=Math.max(10,Math.ceil(d[d.length-1][0])),xs=step(xmax,10),X=v=>L+v/xmax*(R-L),Y=v=>B-Math.max(0,v)/ymax*(B-TP);
   TX(c,'Applied load over time',100,y,28,INK);
@@ -350,10 +357,11 @@ function drawReport(r,lean){
   [['Peak load',r.peak+' kN'],['Target proof load',r.target+' kN'],['Required hold',r.need+' s'],['Longest hold',r.hold+' s'],['Duration',r.dur+' s']].forEach(([k,v],i)=>{
     TX(c,k,100+i*205,lean?1110:1566-sh,21,MUT);TX(c,v,100+i*205,lean?1160:1616-sh,34,INK,700)});
   if(r.result==='INTERRUPTED')TX(c,'Interrupted: the connection to the gauge was lost during the test.',100,lean?1220:1650-sh,22,'#b45309');
-  nl.forEach((l,i)=>TX(c,l,100,1692-sh+i*30,22,MUT));
+  let yb=yb0-sh;blocks.forEach(([h,L,col])=>{TX(c,h,100,yb+24,24,col,700);L.forEach((l,i)=>TX(c,l,100,yb+60+i*30,24,INK));yb+=50+L.length*30});
   return cv;
 }
 const W=1240,H=1754,FONT='system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif',INK='#111827',MUT='#6b7280';
+function noteOf(r){return(r.note!==undefined?r.note:(r.meta&&r.meta.notes))||''}
 function refText(r){return String((r.meta&&r.meta.ref)||'').replace(/\{n\}/g,r.b?r.b.no:'').replace(/\{anchor\}/g,r.anchor||'').trim()}
 function mk(){const cv=document.createElement('canvas');cv.width=W;cv.height=H;const c=cv.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,W,H);return[cv,c]}
 function TX(c,t,x,y,sz,col,wt,al){c.font=`${wt||400} ${sz}px ${FONT}`;c.fillStyle=col;c.textAlign=al||'left';c.textBaseline='alphabetic';c.fillText(t,x,y)}
@@ -485,10 +493,12 @@ async function deliver(build,name,text,share){
 $('btnShareReady').onclick=async()=>{if(!pendingFile)return;const p=pendingFile;if(await trySend(p.file,p.text)){pendingFile=null;$('btnShareReady').hidden=true;status('')}else{download(p.file,p.file.name);status('Sharing failed, so the PDF was downloaded instead.')}};
 let lastR=null;
 function showReport(r){
-  lastR=r;$('rep').hidden=false;
+  lastR=r;$('rep').hidden=false;$('failBox').hidden=r.result!=='FAIL';$('repFail').value=r.failReason||'';$('repNote').value=noteOf(r);
   $('repInfo').innerHTML=`Anchor <b>${esc(r.anchor)}</b>: <b class="${r.result==='PASS'?'ok':r.result==='FAIL'?'bad':'warn'}">${r.result}</b> (peak ${r.peak} kN, held ${r.hold} of ${r.need} s)`;
   $('rep').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
+$('repFail').oninput=()=>{if(lastR){lastR.failReason=$('repFail').value;store.set('results',results)}};
+$('repNote').oninput=()=>{if(lastR){lastR.note=$('repNote').value;store.set('results',results)}};
 const one=(r,sh)=>deliver(()=>buildPdf([r],false),fname(r),`Anchor ${r.anchor}: ${r.result}`,sh);
 $('btnShare').onclick=()=>lastR&&one(lastR,true);
 $('btnPdf').onclick=()=>lastR&&one(lastR,false);
@@ -524,10 +534,10 @@ $('btnBNew').onclick=()=>{if(run){status('End the current test first.');return}b
 $('count').oninput=refreshBatch;
 // ---- edit a batch after it is finished ----
 const EDF=[['ref','Report no.'],['project','Project no.'],['operator','Operator'],['sName','Site name'],['sAddr','Site address'],['sContact','Site contact'],['sPhone','Site telephone'],['sEmail','Site email'],['cName','Client name'],['cAddr','Client address'],['cContact','Client contact'],['cPhone','Client telephone'],['cEmail','Client email'],['substrate','Substrate'],['fixType','Fixing type'],['size','Size'],['maker','Manufacturer'],['partNo','Part number'],['testType','Test type']];
-const EDT=[['anchor','Anchor ID'],['location','Location'],['type','Anchor type'],['notes','Notes']];
+const EDT=[['anchor','Anchor ID'],['location','Location'],['type','Anchor type'],['note','Notes (optional)']];
 let edState=null;
 const testsOf=id=>results.filter(r=>r.b&&r.b.id===id).sort((a,b)=>a.b.no-b.b.no||a.at.localeCompare(b.at));
-function field(label,val,cls){const l=document.createElement('label'),i=document.createElement('input');l.textContent=label;i.type='text';i.value=val||'';l.append(i);if(cls)l.className=cls;return[l,i]}
+function field(label,val,cls){const l=document.createElement('label'),ta=/ta/.test(cls||''),i=document.createElement(ta?'textarea':'input');l.textContent=label;if(ta)i.rows=3;else i.type='text';i.value=val||'';l.append(i);if(cls)l.className=cls.replace('ta','').trim();return[l,i]}
 function openEdit(){
   const t=batchTests();if(!t.length){status('Choose a batch with tests first.');return}
   const id=t[0].b.id,box=$('edBody'),m0=t[0].meta||{},bi={},ti=[];box.innerHTML='';
@@ -536,7 +546,7 @@ function openEdit(){
   EDF.forEach(([k,lb])=>{const[l,i]=field(lb,m0[k],/Addr|Email|^ref$/.test(k)?'w':'');bi[k]=i;g0.append(l)});
   box.append(h0,g0);
   t.forEach(x=>{const h=document.createElement('h2'),g=document.createElement('div'),o={};h.textContent='Test '+x.b.no+': '+x.anchor+' ('+x.result+')';h.style.marginTop='18px';g.className='grid';
-    EDT.forEach(([k,lb])=>{const[l,i]=field(lb,k==='anchor'?x.anchor:(x.meta||{})[k],k==='notes'?'w':'');o[k]=i;g.append(l)});ti.push([x,o]);box.append(h,g)});
+    EDT.concat(x.result==='FAIL'?[['failReason','Reason for failure']]:[]).forEach(([k,lb])=>{const v=k==='anchor'?x.anchor:k==='note'?noteOf(x):k==='failReason'?x.failReason:(x.meta||{})[k];const[l,i]=field(lb,v,k==='note'||k==='failReason'?'w ta':'');o[k]=i;g.append(l)});ti.push([x,o]);box.append(h,g)});
   edState={id,bi,ti};$('ed').hidden=false;$('ed').scrollIntoView({behavior:'smooth',block:'start'});
 }
 $('btnBEdit').onclick=openEdit;
@@ -544,7 +554,7 @@ $('btnEdCancel').onclick=()=>{$('ed').hidden=true;edState=null};
 $('btnEdSave').onclick=()=>{
   if(!edState)return;const{id,bi,ti}=edState;
   Object.entries(bi).forEach(([k,i])=>testsOf(id).forEach(x=>{x.meta=x.meta||{};x.meta[k]=i.value.trim()}));
-  ti.forEach(([x,o])=>{x.anchor=o.anchor.value.trim()||x.anchor;x.meta=x.meta||{};['location','type','notes'].forEach(k=>x.meta[k]=o[k].value.trim())});
+  ti.forEach(([x,o])=>{x.anchor=o.anchor.value.trim()||x.anchor;x.meta=x.meta||{};['location','type'].forEach(k=>x.meta[k]=o[k].value.trim());x.note=o.note.value.trim();if(o.failReason)x.failReason=o.failReason.value.trim()});
   store.set('results',results);
   if(batch&&batch.id===id){Object.entries(bi).forEach(([k,i])=>{$('m_'+k).value=i.value.trim()});store.set('meta',getMeta())}
   $('ed').hidden=true;edState=null;render();refreshBatch();
