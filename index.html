@@ -72,9 +72,16 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <h2>Test batch</h2>
   <div class="row"><label>Number of tests<input type="number" id="count" value="1" min="1" max="200" inputmode="numeric"></label><div id="batchLbl" style="font-weight:700"></div></div>
   <label style="margin-top:10px">Report for<select id="batchSel"></select></label>
-  <div class="row" style="margin-top:10px"><button class="pri" id="btnBShare">Share batch report</button><button id="btnBPdf">Download PDF</button><button id="btnBNew">New batch</button></div>
+  <div class="row" style="margin-top:10px"><button class="pri" id="btnBShare">Share batch report</button><button id="btnBPdf">Download PDF</button><button id="btnBEdit">Edit report</button><button id="btnBNew">New batch</button></div>
+  <div class="row" style="margin-top:10px"><button class="sm" id="btnBDel" style="color:var(--bad)">Delete this batch</button><button class="sm" id="btnBDelAll" style="color:var(--bad)">Delete all old batches</button></div>
   <button class="pri" id="btnShareReady" hidden style="margin-top:10px;width:100%">Share ready report</button>
   <p class="note">A batch report includes only the tests completed so far, so you can stop at any point.</p>
+</section>
+
+<section id="ed" hidden>
+  <h2>Edit batch report</h2>
+  <div id="edBody"></div>
+  <div class="row" style="margin-top:14px"><button class="pri" id="btnEdSave">Save changes</button><button id="btnEdCancel">Cancel</button></div>
 </section>
 
 <section id="lockCard" hidden>
@@ -143,7 +150,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
-<p class="note" style="text-align:center">Version 8 Oct 2026 (c): site and client details hide while a batch is running</p>
+<p class="note" style="text-align:center">Version 8 Oct 2026 (e): old batches can be deleted, with confirmation</p>
 </main>
 
 <script>
@@ -287,7 +294,15 @@ $('btnCopy').onclick=async()=>{
   const csv=['anchor,target_kn,peak_kn,longest_hold_s,required_hold_s,result,time'].concat(results.map(r=>[r.anchor,r.target,r.peak,r.hold,r.need,r.result,r.at].join(','))).join('\n');
   try{await navigator.clipboard.writeText(csv);status('Results copied. Paste into a spreadsheet or message.')}catch(e){status('Copy was blocked by the browser.')}
 };
-$('btnClear').onclick=()=>{if(results.length&&confirm('Clear all saved results on this phone?')){results=[];batch=null;store.set('results',results);store.set('batch',null);render();refreshBatch()}};
+$('btnClear').onclick=async()=>{
+  if(run){status('End the current test first.');return}
+  if(!results.length){status('No results to clear.');return}
+  const p=await photoCount(results.map(r=>r.id));
+  if(!confirm(`Delete ALL ${results.length} saved test(s) and ${p} photo(s) from this phone permanently? This cannot be undone.`))return;
+  await delPhotos(results.map(r=>r.id));results=[];batch=null;store.set('results',results);store.set('batch',null);
+  if(edState){$('ed').hidden=true;edState=null}
+  render();refreshBatch();status('All results deleted.');
+};
 $('target').oninput=draw;window.addEventListener('resize',draw);
 
 // ---- job details ----
@@ -488,6 +503,56 @@ function batchDo(sh){const t=batchTests();if(!t.length){status('No tests in this
 $('btnBShare').onclick=()=>batchDo(true);$('btnBPdf').onclick=()=>batchDo(false);
 $('btnBNew').onclick=()=>{if(run){status('End the current test first.');return}batch=null;store.set('batch',null);refreshBatch()};
 $('count').oninput=refreshBatch;
+// ---- edit a batch after it is finished ----
+const EDF=[['ref','Report no.'],['project','Project no.'],['operator','Operator'],['sName','Site name'],['sAddr','Site address'],['sContact','Site contact'],['sPhone','Site telephone'],['sEmail','Site email'],['cName','Client name'],['cAddr','Client address'],['cContact','Client contact'],['cPhone','Client telephone'],['cEmail','Client email']];
+const EDT=[['anchor','Anchor ID'],['location','Location'],['type','Anchor type'],['substrate','Substrate'],['notes','Notes']];
+let edState=null;
+const testsOf=id=>results.filter(r=>r.b&&r.b.id===id).sort((a,b)=>a.b.no-b.b.no||a.at.localeCompare(b.at));
+function field(label,val,cls){const l=document.createElement('label'),i=document.createElement('input');l.textContent=label;i.type='text';i.value=val||'';l.append(i);if(cls)l.className=cls;return[l,i]}
+function openEdit(){
+  const t=batchTests();if(!t.length){status('Choose a batch with tests first.');return}
+  const id=t[0].b.id,box=$('edBody'),m0=t[0].meta||{},bi={},ti=[];box.innerHTML='';
+  const h0=document.createElement('h2');h0.textContent='Report details (applies to every test in this batch)';
+  const g0=document.createElement('div');g0.className='grid';
+  EDF.forEach(([k,lb])=>{const[l,i]=field(lb,m0[k],/Addr|Email|^ref$/.test(k)?'w':'');bi[k]=i;g0.append(l)});
+  box.append(h0,g0);
+  t.forEach(x=>{const h=document.createElement('h2'),g=document.createElement('div'),o={};h.textContent='Test '+x.b.no+': '+x.anchor+' ('+x.result+')';h.style.marginTop='18px';g.className='grid';
+    EDT.forEach(([k,lb])=>{const[l,i]=field(lb,k==='anchor'?x.anchor:(x.meta||{})[k],k==='notes'?'w':'');o[k]=i;g.append(l)});ti.push([x,o]);box.append(h,g)});
+  edState={id,bi,ti};$('ed').hidden=false;$('ed').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('btnBEdit').onclick=openEdit;
+$('btnEdCancel').onclick=()=>{$('ed').hidden=true;edState=null};
+$('btnEdSave').onclick=()=>{
+  if(!edState)return;const{id,bi,ti}=edState;
+  Object.entries(bi).forEach(([k,i])=>testsOf(id).forEach(x=>{x.meta=x.meta||{};x.meta[k]=i.value.trim()}));
+  ti.forEach(([x,o])=>{x.anchor=o.anchor.value.trim()||x.anchor;x.meta=x.meta||{};['location','type','substrate','notes'].forEach(k=>x.meta[k]=o[k].value.trim())});
+  store.set('results',results);
+  if(batch&&batch.id===id){Object.entries(bi).forEach(([k,i])=>{$('m_'+k).value=i.value.trim()});store.set('meta',getMeta())}
+  $('ed').hidden=true;edState=null;render();refreshBatch();
+  status('Changes saved. Share or download the batch report again to include them.');
+};
+// ---- delete old batches (with confirmation) ----
+async function photoCount(ids){let n=0;for(const id of ids)n+=(await getPhotos(id)).length;return n}
+async function delPhotos(ids){try{const db=await dbp;await new Promise(res=>{const t=db.transaction('p','readwrite'),st=t.objectStore('p');ids.forEach(i=>st.delete(i));t.oncomplete=res;t.onerror=res})}catch(e){}}
+async function removeBatches(ids,label,twice){
+  if(run&&ids.includes(run.b.id)){status('End the current test first.');return}
+  const gone=results.filter(r=>r.b&&ids.includes(r.b.id));
+  if(!gone.length){status('Nothing to delete.');return}
+  const p=await photoCount(gone.map(r=>r.id));
+  if(!confirm(`Delete ${label} permanently?\n\n${gone.length} test(s) and ${p} photo(s) will be removed from this phone. This cannot be undone. Reports you have already shared are not affected.`))return;
+  if(twice&&!confirm('Last check: really delete all of these? This cannot be undone.'))return;
+  await delPhotos(gone.map(r=>r.id));
+  results=results.filter(r=>!(r.b&&ids.includes(r.b.id)));
+  if(batch&&ids.includes(batch.id))batch=null;
+  store.set('results',results);store.set('batch',batch);
+  if(edState&&ids.includes(edState.id)){$('ed').hidden=true;edState=null}
+  render();refreshBatch();status('Deleted '+gone.length+' test(s).');
+}
+$('btnBDel').onclick=()=>{const id=$('batchSel').value;if(!id){status('Choose a batch first.');return}const o=$('batchSel').selectedOptions[0];removeBatches([id],'this batch ('+(o?o.textContent:id)+')',false)};
+$('btnBDelAll').onclick=()=>{
+  const keep=(batch&&(run||batch.done<batch.size))?batch.id:null,ids=[...new Set(results.filter(r=>r.b&&r.b.id!==keep).map(r=>r.b.id))];
+  if(!ids.length){status('There are no old batches to delete.');return}
+  removeBatches(ids,'all '+ids.length+' old batch(es)'+(keep?' (the batch in progress is kept)':''),true)};
 // ---- photos ----
 let phTid=null;
 async function shrink(f){const b=await createImageBitmap(f,{imageOrientation:'from-image'}),k=Math.min(1,1400/Math.max(b.width,b.height)),cv=document.createElement('canvas');cv.width=Math.round(b.width*k);cv.height=Math.round(b.height*k);cv.getContext('2d').drawImage(b,0,0,cv.width,cv.height);return new Promise(r=>cv.toBlob(r,'image/jpeg',.82))}
