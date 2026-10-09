@@ -99,13 +99,21 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <div class="grid"><label class="w">Name<input type="text" id="m_cName"></label><label class="w">Address<input type="text" id="m_cAddr"></label><label>Contact<input type="text" id="m_cContact"></label><label>Telephone<input type="text" id="m_cPhone" inputmode="tel"></label><label class="w">Email<input type="text" id="m_cEmail" inputmode="email"></label></div>
 </section>
 
+<section class="grp">
+  <h2>Fixing details</h2>
+  <div class="grid">
+    <label>Substrate<input type="text" id="m_substrate" placeholder="e.g. Concrete"></label><label>Fixing type<input type="text" id="m_fixType" placeholder="e.g. Chemical Anchor"></label>
+    <label>Size<input type="text" id="m_size" placeholder="e.g. M12"></label><label>Manufacturer<input type="text" id="m_maker" placeholder="e.g. Hilti"></label>
+    <label>Part number<input type="text" id="m_partNo" placeholder="e.g. HIT-RE 500"></label><label>Test type<input type="text" id="m_testType"></label>
+  </div>
+</section>
+
 <section>
   <h2>Job details</h2>
   <div class="grid">
     <label class="w pj">Report no.<input type="text" id="m_ref" placeholder="e.g. 004-5532-DMC"></label>
     <label class="pj">Project no.<input type="text" id="m_project"></label><label>Location<input type="text" id="m_location"></label>
     <label class="pj">Operator<input type="text" id="m_operator"></label><label>Anchor type<input type="text" id="m_type"></label>
-    <label class="w">Substrate<input type="text" id="m_substrate"></label>
     <label class="w">Notes<input type="text" id="m_notes"></label>
   </div>
 </section>
@@ -150,7 +158,7 @@ select{font:inherit;min-height:44px;border:1px solid var(--line);border-radius:8
   <table><thead><tr><th>Anchor</th><th>Peak kN</th><th>Hold s</th><th>Result</th><th></th></tr></thead><tbody id="rows"></tbody></table>
   <div class="row" style="margin-top:10px"><button id="btnCopy">Copy results as CSV</button><button id="btnClear">Clear results</button></div>
 </section>
-<p class="note" style="text-align:center">Version 8 Oct 2026 (e): old batches can be deleted, with confirmation</p>
+<p class="note" style="text-align:center">Version 8 Oct 2026 (f): fixing details table on the batch report</p>
 </main>
 
 <script>
@@ -306,9 +314,10 @@ $('btnClear').onclick=async()=>{
 $('target').oninput=draw;window.addEventListener('resize',draw);
 
 // ---- job details ----
-const MF=['project','location','operator','type','substrate','notes','ref','sName','sAddr','sContact','sPhone','sEmail','cName','cAddr','cContact','cPhone','cEmail'];
+const MF=['project','location','operator','type','substrate','notes','ref','sName','sAddr','sContact','sPhone','sEmail','cName','cAddr','cContact','cPhone','cEmail','fixType','size','maker','partNo','testType'];
 const savedMeta=store.get('meta',{});
 MF.forEach(k=>{const e=$('m_'+k);e.value=savedMeta[k]||'';e.oninput=()=>store.set('meta',getMeta())});
+if(!$('m_testType').value)$('m_testType').value='Proof Test';
 function getMeta(){const m={};MF.forEach(k=>m[k]=$('m_'+k).value.trim());return m}
 
 // ---- report (drawn on a canvas, wrapped in a PDF; works offline) ----
@@ -388,6 +397,15 @@ function drawInfo(c,y,L,R,vx,vw){
   return yy;
 }
 const FIRST=12,NEXT=24;
+function drawFixing(c,y,m){
+  let x=100;
+  const cells=[['Substrate',m.substrate,170],['Fixing Type',m.fixType,200],['Size',m.size,90],['Manufacturer',m.maker,170],['Part Number',m.partNo,230],['Type',m.testType,180]].map(([k,v,w])=>{const o={k,x,L:wrapLines(c,v||'-',w-14,24,4)};x+=w;return o});
+  cells.forEach(o=>TX(c,o.k,o.x,y+22,21,MUT));
+  c.strokeStyle='#e5e7eb';c.lineWidth=2;c.beginPath();c.moveTo(100,y+36);c.lineTo(1140,y+36);c.stroke();
+  const n=Math.max(...cells.map(o=>o.L.length));
+  cells.forEach(o=>o.L.forEach((l,j)=>TX(c,l,o.x,y+78+j*30,24,INK)));
+  return y+78+(n-1)*30+22;
+}
 function drawSummary(all,st,pi){
   const [cv,c]=mk(),done=all.filter(t=>t.result!=='INTERRUPTED'),np=done.filter(t=>t.result==='PASS').length,nf=done.length-np,ni=all.length-done.length,m=all[0].meta||{};
   let y0;
@@ -397,7 +415,8 @@ function drawSummary(all,st,pi){
     const ok=nf===0&&done.length>0,lbl=!done.length?'NO RESULTS':ok?'ALL PASS':nf+' FAILED',bw=lbl==='NO RESULTS'?290:ok?230:250;
     c.fillStyle=ok?'#15803d':'#b91c1c';rr(c,1140-bw,y-40,bw,72,16);c.fill();TX(c,lbl,1140-bw/2,y+10,34,'#fff',800,'center');
     y+=50;y=drawParties(c,y,m)+40;
-    y=drawInfo(c,y,[['Project',m.project]],[['Operator',m.operator]],150,330)+34;
+    y=drawInfo(c,y,[['Project',m.project]],[['Operator',m.operator]],150,330)+24;
+    y=drawFixing(c,y,m)+50;
     TX(c,`${done.length} of ${done.length} tests completed  ·  ${np} passed  ·  ${nf} failed`+(ni?`  ·  ${ni} interrupted`:''),100,y,28,INK,700);
     y0=y+60;
   }else{TX(c,'Batch results (continued)',100,150,40,INK,700);y0=260}
@@ -504,8 +523,8 @@ $('btnBShare').onclick=()=>batchDo(true);$('btnBPdf').onclick=()=>batchDo(false)
 $('btnBNew').onclick=()=>{if(run){status('End the current test first.');return}batch=null;store.set('batch',null);refreshBatch()};
 $('count').oninput=refreshBatch;
 // ---- edit a batch after it is finished ----
-const EDF=[['ref','Report no.'],['project','Project no.'],['operator','Operator'],['sName','Site name'],['sAddr','Site address'],['sContact','Site contact'],['sPhone','Site telephone'],['sEmail','Site email'],['cName','Client name'],['cAddr','Client address'],['cContact','Client contact'],['cPhone','Client telephone'],['cEmail','Client email']];
-const EDT=[['anchor','Anchor ID'],['location','Location'],['type','Anchor type'],['substrate','Substrate'],['notes','Notes']];
+const EDF=[['ref','Report no.'],['project','Project no.'],['operator','Operator'],['sName','Site name'],['sAddr','Site address'],['sContact','Site contact'],['sPhone','Site telephone'],['sEmail','Site email'],['cName','Client name'],['cAddr','Client address'],['cContact','Client contact'],['cPhone','Client telephone'],['cEmail','Client email'],['substrate','Substrate'],['fixType','Fixing type'],['size','Size'],['maker','Manufacturer'],['partNo','Part number'],['testType','Test type']];
+const EDT=[['anchor','Anchor ID'],['location','Location'],['type','Anchor type'],['notes','Notes']];
 let edState=null;
 const testsOf=id=>results.filter(r=>r.b&&r.b.id===id).sort((a,b)=>a.b.no-b.b.no||a.at.localeCompare(b.at));
 function field(label,val,cls){const l=document.createElement('label'),i=document.createElement('input');l.textContent=label;i.type='text';i.value=val||'';l.append(i);if(cls)l.className=cls;return[l,i]}
@@ -525,7 +544,7 @@ $('btnEdCancel').onclick=()=>{$('ed').hidden=true;edState=null};
 $('btnEdSave').onclick=()=>{
   if(!edState)return;const{id,bi,ti}=edState;
   Object.entries(bi).forEach(([k,i])=>testsOf(id).forEach(x=>{x.meta=x.meta||{};x.meta[k]=i.value.trim()}));
-  ti.forEach(([x,o])=>{x.anchor=o.anchor.value.trim()||x.anchor;x.meta=x.meta||{};['location','type','substrate','notes'].forEach(k=>x.meta[k]=o[k].value.trim())});
+  ti.forEach(([x,o])=>{x.anchor=o.anchor.value.trim()||x.anchor;x.meta=x.meta||{};['location','type','notes'].forEach(k=>x.meta[k]=o[k].value.trim())});
   store.set('results',results);
   if(batch&&batch.id===id){Object.entries(bi).forEach(([k,i])=>{$('m_'+k).value=i.value.trim()});store.set('meta',getMeta())}
   $('ed').hidden=true;edState=null;render();refreshBatch();
